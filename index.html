@@ -479,6 +479,85 @@
             font-size: 0.95rem;
         }
 
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 40, 24, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .loading-spinner {
+            font-size: 4rem;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-family: 'Mountains of Christmas', cursive;
+            font-size: 1.5rem;
+            color: var(--gold);
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .connection-status.online {
+            background: rgba(45, 106, 79, 0.8);
+            color: var(--cream);
+        }
+
+        .connection-status.offline {
+            background: rgba(139, 21, 56, 0.8);
+            color: var(--cream);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .connection-status.online .status-dot {
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        .connection-status.offline .status-dot {
+            background: #f87171;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
         @media (max-width: 360px) {
             h1 {
                 font-size: 2.2rem;
@@ -490,6 +569,16 @@
     </style>
 </head>
 <body>
+    <div class="loading-overlay" id="loading">
+        <div class="loading-spinner">❄️</div>
+        <div class="loading-text">Loading Contest...</div>
+    </div>
+
+    <div class="connection-status online" id="connection-status">
+        <div class="status-dot"></div>
+        <span>Live</span>
+    </div>
+
     <div class="snowflakes" id="snowflakes"></div>
     
     <div class="container">
@@ -515,7 +604,6 @@
                 <div class="category">
                     <h2 class="category-title">🧑 Adult Division</h2>
                     <p class="category-subtitle">Best Ugly Sweater - Adult</p>
-                    <div class="sweater-icon">🎅</div>
                     <div class="name-input-group">
                         <label for="adult-name">Who gets your vote?</label>
                         <input type="text" id="adult-name" class="name-input" placeholder="Enter person's name..." autocomplete="off">
@@ -526,7 +614,6 @@
                 <div class="category">
                     <h2 class="category-title">👶 Child Division</h2>
                     <p class="category-subtitle">Best Ugly Sweater - Child</p>
-                    <div class="sweater-icon">🧝</div>
                     <div class="name-input-group">
                         <label for="child-name">Who gets your vote?</label>
                         <input type="text" id="child-name" class="name-input" placeholder="Enter person's name..." autocomplete="off">
@@ -560,22 +647,113 @@
 
     <div class="toast" id="toast">Vote submitted successfully! 🎉</div>
 
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
     <script>
-        // Data storage keys
-        const STORAGE_KEYS = {
-            votes: 'uglySweater_votes',
-            hasVoted: 'uglySweater_hasVoted',
-            voterCount: 'uglySweater_voterCount'
+        // =====================================================
+        // FIREBASE CONFIGURATION - REPLACE WITH YOUR OWN!
+        // =====================================================
+        // 1. Go to https://console.firebase.google.com/
+        // 2. Create a new project (or use existing)
+        // 3. Click "Build" > "Realtime Database" > "Create Database"
+        // 4. Choose "Start in test mode" (for simplicity)
+        // 5. Go to Project Settings > General > Your apps > Add web app
+        // 6. Copy your config values below:
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyDrmhGGd1aYx9UK45pHWW7rbttZdf3Oxsw",
+            authDomain: "sweater-vote.firebaseapp.com",
+            databaseURL: "https://sweater-vote-default-rtdb.firebaseio.com",
+            projectId: "sweater-vote",
+            storageBucket: "sweater-vote.firebasestorage.app",
+            messagingSenderId: "903383140336",
+            appId: "1:903383140336:web:c999f61987c2960441ff35"
         };
+        // =====================================================
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Generate or retrieve device ID
+        function getDeviceId() {
+            let deviceId = localStorage.getItem('sweater_device_id');
+            if (!deviceId) {
+                deviceId = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('sweater_device_id', deviceId);
+            }
+            return deviceId;
+        }
+
+        const deviceId = getDeviceId();
+        let currentContestVersion = 0;
+        let currentVotes = { adult: {}, child: {} };
+        let voterCount = 0;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             createSnowflakes();
             setupNavigation();
             setupVoting();
-            checkVotingStatus();
-            renderResults();
+            setupRealtimeListeners();
         });
+
+        // Setup real-time listeners for Firebase
+        function setupRealtimeListeners() {
+            const contestRef = database.ref('contest');
+            
+            // Listen for all contest data changes
+            contestRef.on('value', (snapshot) => {
+                const data = snapshot.val() || {};
+                
+                currentContestVersion = data.version || 0;
+                currentVotes = data.votes || { adult: {}, child: {} };
+                voterCount = data.voterCount || 0;
+                
+                // Check if this device has voted in current contest version
+                const votedVersion = localStorage.getItem('sweater_voted_version');
+                const hasVoted = votedVersion && parseInt(votedVersion) === currentContestVersion;
+                
+                updateVotingUI(hasVoted);
+                renderResults();
+                
+                // Hide loading screen
+                document.getElementById('loading').classList.add('hidden');
+            }, (error) => {
+                console.error('Firebase error:', error);
+                showToast('Connection error. Please refresh.');
+                document.getElementById('loading').classList.add('hidden');
+            });
+
+            // Monitor connection state
+            const connectedRef = database.ref('.info/connected');
+            connectedRef.on('value', (snapshot) => {
+                const statusEl = document.getElementById('connection-status');
+                if (snapshot.val() === true) {
+                    statusEl.className = 'connection-status online';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>Live</span>';
+                } else {
+                    statusEl.className = 'connection-status offline';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>Offline</span>';
+                }
+            });
+        }
+
+        function updateVotingUI(hasVoted) {
+            if (hasVoted) {
+                document.getElementById('voting-form').style.display = 'none';
+                document.getElementById('already-voted').style.display = 'block';
+            } else {
+                document.getElementById('voting-form').style.display = 'block';
+                document.getElementById('already-voted').style.display = 'none';
+                // Clear inputs when voting reopens
+                document.getElementById('adult-name').value = '';
+                document.getElementById('child-name').value = '';
+                document.getElementById('submit-vote').disabled = true;
+            }
+        }
 
         // Create falling snowflakes
         function createSnowflakes() {
@@ -608,10 +786,6 @@
                     // Update pages
                     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
                     document.getElementById(`${page}-page`).classList.add('active');
-                    
-                    if (page === 'results') {
-                        renderResults();
-                    }
                 });
             });
         }
@@ -639,15 +813,7 @@
             document.getElementById('reset-btn').addEventListener('click', resetContest);
         }
 
-        function checkVotingStatus() {
-            const hasVoted = localStorage.getItem(STORAGE_KEYS.hasVoted);
-            if (hasVoted) {
-                document.getElementById('voting-form').style.display = 'none';
-                document.getElementById('already-voted').style.display = 'block';
-            }
-        }
-
-        function submitVote() {
+        async function submitVote() {
             const adultName = document.getElementById('adult-name').value.trim();
             const childName = document.getElementById('child-name').value.trim();
 
@@ -657,26 +823,42 @@
             const normalizedAdult = normalizeName(adultName);
             const normalizedChild = normalizeName(childName);
             
-            // Get current votes
-            let votes = JSON.parse(localStorage.getItem(STORAGE_KEYS.votes) || '{"adult":{},"child":{}}');
-            let voterCount = parseInt(localStorage.getItem(STORAGE_KEYS.voterCount) || '0');
-            
-            // Add votes
-            votes.adult[normalizedAdult] = (votes.adult[normalizedAdult] || 0) + 1;
-            votes.child[normalizedChild] = (votes.child[normalizedChild] || 0) + 1;
-            voterCount++;
-            
-            // Save to storage
-            localStorage.setItem(STORAGE_KEYS.votes, JSON.stringify(votes));
-            localStorage.setItem(STORAGE_KEYS.voterCount, voterCount.toString());
-            localStorage.setItem(STORAGE_KEYS.hasVoted, 'true');
-            
-            // Show success
-            showToast('Vote submitted successfully! 🎉');
-            
-            // Update UI
-            document.getElementById('voting-form').style.display = 'none';
-            document.getElementById('already-voted').style.display = 'block';
+            try {
+                // Use a transaction to safely update votes
+                const contestRef = database.ref('contest');
+                
+                await contestRef.transaction((data) => {
+                    if (!data) {
+                        data = { version: 0, votes: { adult: {}, child: {} }, voterCount: 0 };
+                    }
+                    
+                    // Initialize votes object if needed
+                    if (!data.votes) data.votes = { adult: {}, child: {} };
+                    if (!data.votes.adult) data.votes.adult = {};
+                    if (!data.votes.child) data.votes.child = {};
+                    
+                    // Add votes
+                    data.votes.adult[normalizedAdult] = (data.votes.adult[normalizedAdult] || 0) + 1;
+                    data.votes.child[normalizedChild] = (data.votes.child[normalizedChild] || 0) + 1;
+                    data.voterCount = (data.voterCount || 0) + 1;
+                    
+                    return data;
+                });
+                
+                // Mark this device as voted for current version
+                localStorage.setItem('sweater_voted_version', currentContestVersion.toString());
+                
+                // Show success
+                showToast('Vote submitted successfully! 🎉');
+                
+                // Update UI
+                document.getElementById('voting-form').style.display = 'none';
+                document.getElementById('already-voted').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error submitting vote:', error);
+                showToast('Error submitting vote. Please try again.');
+            }
         }
 
         function normalizeName(name) {
@@ -686,9 +868,6 @@
         }
 
         function renderResults() {
-            const votes = JSON.parse(localStorage.getItem(STORAGE_KEYS.votes) || '{"adult":{},"child":{}}');
-            const voterCount = parseInt(localStorage.getItem(STORAGE_KEYS.voterCount) || '0');
-            
             const container = document.getElementById('results-content');
             
             document.getElementById('total-votes').textContent = voterCount;
@@ -706,10 +885,10 @@
             let html = '';
             
             // Adult results
-            html += renderCategoryResults('🧑 Adult Division', votes.adult);
+            html += renderCategoryResults('🧑 Adult Division', currentVotes.adult || {});
             
             // Child results
-            html += renderCategoryResults('👶 Child Division', votes.child);
+            html += renderCategoryResults('👶 Child Division', currentVotes.child || {});
             
             container.innerHTML = html;
         }
@@ -763,24 +942,28 @@
             return div.innerHTML;
         }
 
-        function resetContest() {
+        async function resetContest() {
             if (confirm('Are you sure you want to reset the contest? This will clear all votes and allow everyone to vote again.')) {
-                localStorage.removeItem(STORAGE_KEYS.votes);
-                localStorage.removeItem(STORAGE_KEYS.hasVoted);
-                localStorage.removeItem(STORAGE_KEYS.voterCount);
-                
-                // Reset UI
-                document.getElementById('adult-name').value = '';
-                document.getElementById('child-name').value = '';
-                document.getElementById('submit-vote').disabled = true;
-                document.getElementById('voting-form').style.display = 'block';
-                document.getElementById('already-voted').style.display = 'none';
-                
-                renderResults();
-                showToast('Contest reset! Voting is open again! 🎄');
-                
-                // Switch to vote page
-                document.querySelector('[data-page="vote"]').click();
+                try {
+                    // Increment version and clear votes
+                    await database.ref('contest').set({
+                        version: currentContestVersion + 1,
+                        votes: { adult: {}, child: {} },
+                        voterCount: 0
+                    });
+                    
+                    // Clear local voted status (will be detected by realtime listener)
+                    localStorage.removeItem('sweater_voted_version');
+                    
+                    showToast('Contest reset! Voting is open again! 🎄');
+                    
+                    // Switch to vote page
+                    document.querySelector('[data-page="vote"]').click();
+                    
+                } catch (error) {
+                    console.error('Error resetting contest:', error);
+                    showToast('Error resetting contest. Please try again.');
+                }
             }
         }
 
