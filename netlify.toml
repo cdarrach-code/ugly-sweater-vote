@@ -1,6 +1,5 @@
 [build]
   publish = "."
-  command = ""
 
 # No build needed - this is a static HTML site
 
