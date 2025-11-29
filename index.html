@@ -115,8 +115,13 @@
             border: 2px solid rgba(255,255,255,0.2);
         }
 
-        .nav-btn:not(.active):hover {
+        .nav-btn:not(.active):hover:not(:disabled) {
             background: rgba(255,255,255,0.2);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .page {
@@ -580,6 +585,72 @@
             50% { opacity: 0.5; }
         }
 
+        .admin-panel {
+            background: linear-gradient(145deg, rgba(212,160,60,0.2) 0%, rgba(212,160,60,0.1) 100%);
+            border: 2px solid var(--gold);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        .admin-panel h3 {
+            font-family: 'Mountains of Christmas', cursive;
+            color: var(--gold);
+            margin-bottom: 15px;
+            font-size: 1.4rem;
+        }
+
+        .admin-btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 50px;
+            font-family: 'Quicksand', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 5px;
+        }
+
+        .admin-btn.enable {
+            background: linear-gradient(135deg, var(--light-green) 0%, #40916C 100%);
+            color: var(--cream);
+        }
+
+        .admin-btn.disable {
+            background: linear-gradient(135deg, var(--burgundy) 0%, #A91D45 100%);
+            color: var(--cream);
+        }
+
+        .results-hidden {
+            text-align: center;
+            padding: 50px 25px;
+            background: linear-gradient(145deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .results-hidden .icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        .results-hidden h2 {
+            font-family: 'Mountains of Christmas', cursive;
+            font-size: 2rem;
+            color: var(--gold);
+            margin-bottom: 15px;
+        }
+
+        .results-hidden p {
+            color: rgba(255,255,255,0.8);
+            line-height: 1.6;
+            font-size: 1.05rem;
+        }
+
         @media (max-width: 360px) {
             h1 {
                 font-size: 2.2rem;
@@ -612,7 +683,7 @@
 
         <nav>
             <button class="nav-btn active" data-page="vote">🗳️ Vote</button>
-            <button class="nav-btn" data-page="results">🏆 Results</button>
+            <button class="nav-btn" data-page="results" id="results-nav-btn" disabled>🔒 Results</button>
         </nav>
 
         <!-- Voting Page -->
@@ -648,22 +719,39 @@
             <div id="already-voted" class="already-voted" style="display: none;">
                 <img src="santa-thumbs.png" alt="Santa giving thumbs up" class="santa-img">
                 <h2>Thanks for Voting!</h2>
-                <p>You've already cast your vote on this device. Check out the Results page to see how the contest is going!</p>
+                <p>You've already cast your vote on this device. Results will be revealed soon!</p>
             </div>
         </div>
 
         <!-- Results Page -->
         <div id="results-page" class="page">
-            <div class="results-header">
-                <h2>🏆 Current Standings</h2>
-                <p class="total-votes">Total voters: <span id="total-votes">0</span></p>
+            <!-- Admin Panel (only visible with admin link) -->
+            <div id="admin-panel" class="admin-panel" style="display: none;">
+                <h3>🎅 Admin Controls</h3>
+                <button class="admin-btn enable" id="enable-results-btn">👁️ Show Results to Everyone</button>
+                <button class="admin-btn disable" id="hide-results-btn" style="display: none;">🔒 Hide Results</button>
             </div>
 
-            <div id="results-content">
-                <!-- Results will be populated by JS -->
+            <!-- Results Hidden Message (for non-admins when results disabled) -->
+            <div id="results-hidden" class="results-hidden" style="display: none;">
+                <div class="icon">🎁</div>
+                <h2>Results Coming Soon!</h2>
+                <p>The contest results will be revealed shortly. Stay tuned!</p>
             </div>
 
-            <button class="reset-btn" id="reset-btn">🔄 Reset Contest & Reopen Voting</button>
+            <!-- Actual Results Content -->
+            <div id="results-visible" style="display: none;">
+                <div class="results-header">
+                    <h2>🏆 Current Standings</h2>
+                    <p class="total-votes">Total voters: <span id="total-votes">0</span></p>
+                </div>
+
+                <div id="results-content">
+                    <!-- Results will be populated by JS -->
+                </div>
+
+                <button class="reset-btn" id="reset-btn">🔄 Reset Contest & Reopen Voting</button>
+            </div>
         </div>
     </div>
 
@@ -694,13 +782,24 @@
         let currentContestVersion = 0;
         let currentVotes = { adult: {}, child: {} };
         let voterCount = 0;
+        let resultsEnabled = false;
+        
+        // Check if user is admin (via URL parameter)
+        const urlParams = new URLSearchParams(window.location.search);
+        const isAdmin = urlParams.get('admin') === 'sweater2024';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             createSnowflakes();
             setupNavigation();
             setupVoting();
+            setupAdminControls();
             setupRealtimeListeners();
+            
+            // Show admin panel if admin
+            if (isAdmin) {
+                document.getElementById('admin-panel').style.display = 'block';
+            }
         });
 
         // Setup real-time listeners for Firebase
@@ -714,12 +813,14 @@
                 currentContestVersion = data.version || 0;
                 currentVotes = data.votes || { adult: {}, child: {} };
                 voterCount = data.voterCount || 0;
+                resultsEnabled = data.resultsEnabled || false;
                 
                 // Check if this device has voted in current contest version
                 const votedVersion = localStorage.getItem('sweater_voted_version');
                 const hasVoted = votedVersion && parseInt(votedVersion) === currentContestVersion;
                 
                 updateVotingUI(hasVoted);
+                updateResultsVisibility();
                 renderResults();
                 
                 // Hide loading screen
@@ -758,6 +859,61 @@
             }
         }
 
+        function updateResultsVisibility() {
+            const resultsNavBtn = document.getElementById('results-nav-btn');
+            const resultsHidden = document.getElementById('results-hidden');
+            const resultsVisible = document.getElementById('results-visible');
+            const enableBtn = document.getElementById('enable-results-btn');
+            const hideBtn = document.getElementById('hide-results-btn');
+            
+            // Admin can always see results
+            if (isAdmin) {
+                resultsNavBtn.disabled = false;
+                resultsNavBtn.textContent = resultsEnabled ? '🏆 Results' : '🔒 Results (Hidden)';
+                resultsHidden.style.display = 'none';
+                resultsVisible.style.display = 'block';
+                
+                // Toggle admin buttons
+                enableBtn.style.display = resultsEnabled ? 'none' : 'inline-block';
+                hideBtn.style.display = resultsEnabled ? 'inline-block' : 'none';
+            } else {
+                // Regular users
+                if (resultsEnabled) {
+                    resultsNavBtn.disabled = false;
+                    resultsNavBtn.textContent = '🏆 Results';
+                    resultsHidden.style.display = 'none';
+                    resultsVisible.style.display = 'block';
+                } else {
+                    resultsNavBtn.disabled = true;
+                    resultsNavBtn.textContent = '🔒 Results';
+                    resultsHidden.style.display = 'block';
+                    resultsVisible.style.display = 'none';
+                }
+            }
+        }
+
+        function setupAdminControls() {
+            document.getElementById('enable-results-btn').addEventListener('click', async () => {
+                try {
+                    await database.ref('contest/resultsEnabled').set(true);
+                    showToast('Results are now visible to everyone! 🎉');
+                } catch (error) {
+                    console.error('Error enabling results:', error);
+                    showToast('Error enabling results. Please try again.');
+                }
+            });
+            
+            document.getElementById('hide-results-btn').addEventListener('click', async () => {
+                try {
+                    await database.ref('contest/resultsEnabled').set(false);
+                    showToast('Results are now hidden 🔒');
+                } catch (error) {
+                    console.error('Error hiding results:', error);
+                    showToast('Error hiding results. Please try again.');
+                }
+            });
+        }
+
         // Create falling snowflakes
         function createSnowflakes() {
             const container = document.getElementById('snowflakes');
@@ -780,6 +936,9 @@
             const navBtns = document.querySelectorAll('.nav-btn');
             navBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
+                    // Don't navigate if button is disabled
+                    if (btn.disabled) return;
+                    
                     const page = btn.dataset.page;
                     
                     // Update nav buttons
@@ -948,11 +1107,12 @@
         async function resetContest() {
             if (confirm('Are you sure you want to reset the contest? This will clear all votes and allow everyone to vote again.')) {
                 try {
-                    // Increment version and clear votes
+                    // Increment version and clear votes (keep resultsEnabled setting)
                     await database.ref('contest').set({
                         version: currentContestVersion + 1,
                         votes: { adult: {}, child: {} },
-                        voterCount: 0
+                        voterCount: 0,
+                        resultsEnabled: false
                     });
                     
                     // Clear local voted status (will be detected by realtime listener)
