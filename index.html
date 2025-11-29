@@ -161,6 +161,15 @@
             margin-bottom: 20px;
         }
 
+        .category-icon {
+            width: 36px;
+            height: 36px;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
         .sweater-icon {
             font-size: 4rem;
             text-align: center;
@@ -615,7 +624,7 @@
 
                 <!-- Adult Category -->
                 <div class="category">
-                    <h2 class="category-title">🧑 Adult Division</h2>
+                    <h2 class="category-title"><img src="adulticon.png" alt="Adult" class="category-icon">Adult Division</h2>
                     <p class="category-subtitle">Best Ugly Sweater - Adult</p>
                     <div class="name-input-group">
                         <label for="adult-name">Who gets your vote?</label>
@@ -625,7 +634,7 @@
 
                 <!-- Child Category -->
                 <div class="category">
-                    <h2 class="category-title">👶 Child Division</h2>
+                    <h2 class="category-title"><img src="childicon.png" alt="Child" class="category-icon">Child Division</h2>
                     <p class="category-subtitle">Best Ugly Sweater - Child</p>
                     <div class="name-input-group">
                         <label for="child-name">Who gets your vote?</label>
@@ -879,22 +888,22 @@
             let html = '';
             
             // Adult results
-            html += renderCategoryResults('🧑 Adult Division', currentVotes.adult || {});
+            html += renderCategoryResults('Adult Division', currentVotes.adult || {}, 'adulticon.png');
             
             // Child results
-            html += renderCategoryResults('👶 Child Division', currentVotes.child || {});
+            html += renderCategoryResults('Child Division', currentVotes.child || {}, 'childicon.png');
             
             container.innerHTML = html;
         }
 
-        function renderCategoryResults(title, votes) {
+        function renderCategoryResults(title, votes, iconSrc) {
             // Convert to array and sort by votes
             const entries = Object.entries(votes).sort((a, b) => b[1] - a[1]);
             
             if (entries.length === 0) {
                 return `
                     <div class="result-category">
-                        <h3>${title}</h3>
+                        <h3><img src="${iconSrc}" alt="${title}" class="category-icon">${title}</h3>
                         <div class="no-votes">
                             <p>No votes in this category yet</p>
                         </div>
@@ -905,7 +914,7 @@
             const maxVotes = entries[0][1];
 
             let html = `<div class="result-category">
-                <h3>${title}</h3>`;
+                <h3><img src="${iconSrc}" alt="${title}" class="category-icon">${title}</h3>`;
             
             entries.forEach(([name, voteCount], index) => {
                 const percentage = maxVotes > 0 ? (voteCount / maxVotes) * 100 : 0;
